@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { audioService } from '../services/audioService';
 
@@ -20,7 +19,10 @@ interface ControlConfig {
 export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, isExpanded = false, onChallengeProgress }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const getControls = (): { primary: ControlConfig; secondary: ControlConfig, extra?: ControlConfig } => {
     switch (simulationId) {
       case 'FlowPatternsVisual':
@@ -71,6 +73,25 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
   const particlesRef = useRef<{ x: number, y: number, vx: number, vy: number, ox: number, oy: number }[]>([]);
 
   useEffect(() => {
+    const handleFullscreenChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    audioService.playClick();
+    if (!document.fullscreenElement) {
+        wrapperRef.current?.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+  };
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -109,7 +130,6 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
       let currentTelemetry: string[] = [];
       let currentLogic = '';
 
-      // --- 1. HEMODYNAMICS (FlowPatternsVisual) ---
       if (simulationId === 'FlowPatternsVisual') {
         const v_in = primary;
         const s_pct = secondary / 100;
@@ -146,7 +166,6 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
         });
       }
 
-      // --- 2. LATERAL RESOLUTION (LateralResolutionVisual) ---
       else if (simulationId === 'LateralResolutionVisual') {
         const focus = primary;
         const spacing = secondary;
@@ -174,7 +193,6 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
         ctx.globalAlpha = 1;
       }
 
-      // --- 3. AXIAL RESOLUTION (LARRD) ---
       else if (simulationId === 'AxialResolutionVisual') {
           const cycles = primary;
           const freq = secondary;
@@ -187,12 +205,10 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
           currentTelemetry = [`SPL: ${spl.toFixed(2)}mm`, `AR (SPL/2): ${axialRes.toFixed(2)}mm` ];
           currentLogic = `LARRD: Axial resolution = Spatial Pulse Length / 2. Shorter pulses (higher frequency) yield better detail along the beam axis.`;
 
-          // Targets
           ctx.fillStyle = canResolve ? '#14b8a6' : '#ef4444';
           ctx.beginPath(); ctx.arc(w/2, h/2 - (spacing * 20), 8, 0, Math.PI*2); ctx.fill();
           ctx.beginPath(); ctx.arc(w/2, h/2 + (spacing * 20), 8, 0, Math.PI*2); ctx.fill();
 
-          // Pulse
           ctx.strokeStyle = '#0ea5e9'; ctx.lineWidth = 3;
           ctx.beginPath();
           const pulseX = (time * 150) % w;
@@ -204,7 +220,6 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
           ctx.stroke();
       }
 
-      // --- 4. ATTENUATION MATRIX (TissueInteractionVisual) ---
       else if (simulationId === 'TissueInteractionVisual') {
         const freq = primary;
         const attenCoeff = 0.5 * freq;
@@ -221,7 +236,6 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
         ctx.stroke();
       }
 
-      // --- FALLBACK: WAVE FOUNDATIONS ---
       else {
         const freq = primary;
         const wavelength = 1.54 / freq;
@@ -245,14 +259,26 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
   }, [simulationId, primary, secondary, extra, isPaused]);
 
   return (
-    <div className="w-full h-full bg-slate-950 rounded-[1.5rem] md:rounded-[2.5rem] overflow-hidden relative shadow-2xl border-2 border-slate-900 flex flex-col group">
+    <div 
+        ref={wrapperRef}
+        className={`w-full h-full bg-slate-950 flex flex-col group relative transition-all duration-500 ${isFullscreen ? 'p-0 rounded-none' : 'rounded-[1.5rem] md:rounded-[2.5rem] border-2 border-slate-900 overflow-hidden shadow-2xl'}`}
+    >
       
       {/* Enhanced Telemetry Overlay */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col pointer-events-none gap-2 max-w-[220px] md:max-w-[300px]">
+      <div className={`absolute top-4 left-4 z-10 flex flex-col pointer-events-none gap-2 ${isFullscreen ? 'max-w-[300px] md:max-w-[400px]' : 'max-w-[220px] md:max-w-[300px]'}`}>
         <div className="bg-black/80 backdrop-blur-xl p-4 rounded-3xl border border-white/10 shadow-2xl pointer-events-auto">
-            <h5 className="text-[8px] font-black text-medical-500 uppercase tracking-widest border-b border-white/5 pb-1 mb-2 flex items-center gap-2">
-                <i className="fas fa-brain animate-pulse"></i> Neural Analytics
-            </h5>
+            <div className="flex justify-between items-center border-b border-white/5 pb-1 mb-2">
+                <h5 className="text-[8px] font-black text-medical-500 uppercase tracking-widest flex items-center gap-2">
+                    <i className="fas fa-brain animate-pulse"></i> Neural Analytics
+                </h5>
+                <button 
+                    onClick={toggleFullscreen}
+                    className="w-6 h-6 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 hover:text-medical-400 transition-all pointer-events-auto"
+                    title={isFullscreen ? "Exit Immersive View" : "Immersive Calibration View"}
+                >
+                    <i className={`fas ${isFullscreen ? 'fa-compress' : 'fa-expand'} text-[10px]`}></i>
+                </button>
+            </div>
             <div className="space-y-1 mb-3">
                 {telemetry.map((t, i) => (
                     <div key={i} className="text-white font-mono text-[9px] leading-tight flex justify-between">
@@ -273,17 +299,16 @@ export const SimulationStage: React.FC<SimulationStageProps> = ({ simulationId, 
         <canvas ref={canvasRef} className="w-full h-full block" />
       </div>
 
-      {/* Lab Controls Tray - Adaptive Grid with explicit spacing for mobile */}
-      <div className="p-4 md:p-6 bg-slate-900/95 border-t border-slate-800 flex flex-col md:grid md:grid-cols-12 gap-6 backdrop-blur-xl">
+      <div className={`p-4 md:p-6 bg-slate-900/95 border-t border-slate-800 flex flex-col md:grid md:grid-cols-12 gap-6 backdrop-blur-xl ${isFullscreen ? 'pb-10' : ''}`}>
         <div className="md:col-span-10 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <SimControl config={controls.primary} value={primary} onChange={setPrimary} />
           <SimControl config={controls.secondary} value={secondary} onChange={setSecondary} />
           {controls.extra && <SimControl config={controls.extra} value={extra} onChange={setExtra} />}
         </div>
-        <div className="md:col-span-2 flex items-center justify-center md:border-l border-slate-800 md:pl-4 mt-4 md:mt-0">
+        <div className="md:col-span-2 flex items-center justify-center md:border-l border-slate-800 md:pl-4 mt-4 md:mt-0 gap-3">
             <button 
                 onClick={() => { audioService.playClick(); setIsPaused(!isPaused); }} 
-                className={`w-full md:w-16 h-12 md:h-16 rounded-2xl border transition-all flex items-center justify-center ${isPaused ? 'bg-medical-500 text-white border-medical-400 shadow-lg' : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/30'}`}
+                className={`w-full h-12 md:h-16 rounded-2xl border transition-all flex items-center justify-center ${isPaused ? 'bg-medical-500 text-white border-medical-400 shadow-lg' : 'bg-white/5 text-slate-400 border-white/10 hover:border-white/30'}`}
                 title={isPaused ? "Resume Protocol" : "Pause Protocol"}
             >
                 <i className={`fas ${isPaused ? 'fa-play' : 'fa-pause'} text-lg`}></i>
@@ -298,7 +323,6 @@ const SimControl: React.FC<{ config: ControlConfig, value: number, onChange: (v:
     const lastTickValue = useRef(value);
 
     const handleInteraction = (val: number) => {
-        // Procedural Audio Tick Logic
         if (Math.abs(val - lastTickValue.current) >= (config.step || 1)) {
             audioService.playTick();
             lastTickValue.current = val;

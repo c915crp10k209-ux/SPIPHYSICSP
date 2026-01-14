@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Topic, AppView, QuizMode, SubTopic } from '../types';
 import { generateLectureScript } from '../services/geminiService';
@@ -24,8 +23,10 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
   const [completedScenes, setCompletedScenes] = useState<Set<number>>(new Set());
   const [direction, setDirection] = useState<'next' | 'prev'>('next');
   const [autoNarrate, setAutoNarrate] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lectureRef = useRef<HTMLDivElement>(null);
   const game = getGameState();
   const subTopicId = subTopic?.id || 'main';
   const staticData = subTopic ? PREGENERATED_CURRICULUM[subTopic.id] : null;
@@ -65,6 +66,25 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
     fetchData();
   }, [topic, subTopicId, staticData]);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    audioService.playClick();
+    if (!document.fullscreenElement) {
+        lectureRef.current?.requestFullscreen().catch(err => {
+            console.error(`Fullscreen Error: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+  };
+
   const scenes = useMemo(() => {
     if (!script) return [];
     const cleanedScript = script.replace(/[*#`]/g, '');
@@ -98,6 +118,7 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
       addXP(50, 5);
     } else {
         audioService.playLevelUp();
+        if (document.fullscreenElement) document.exitFullscreen();
         onNavigate(AppView.QUIZ, topic);
     }
   };
@@ -139,7 +160,7 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
   const activeSceneData = scenes[currentScene];
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 text-white overflow-hidden relative">
+    <div ref={lectureRef} className="h-full flex flex-col bg-slate-950 text-white overflow-hidden relative">
       {/* Progress HUD - Thin bar at top */}
       <div className="absolute top-0 left-0 right-0 h-1 flex gap-0.5 z-[100] p-1">
           {scenes.map((_, i) => (
@@ -152,10 +173,19 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
           <div className="max-w-3xl mx-auto">
               
               {/* Scene Branding */}
-              <div className="flex flex-col items-center mb-16 text-center">
+              <div className="flex flex-col items-center mb-16 text-center relative">
+                  {/* Fullscreen Toggle Button */}
+                  <button 
+                    onClick={toggleFullscreen}
+                    className="absolute -top-12 right-0 w-10 h-10 rounded-xl bg-white/5 border border-white/10 text-slate-500 hover:text-white transition-all flex items-center justify-center group"
+                    title={isFullscreen ? "Exit Focus Mode" : "Enter Focus Mode"}
+                  >
+                    <i className={`fas ${isFullscreen ? 'fa-compress' : 'fa-expand'} text-xs group-hover:scale-110 transition-transform`}></i>
+                  </button>
+
                   <div className="mb-6 flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-1.5 rounded-full">
                       <div className="w-2 h-2 rounded-full bg-medical-500 animate-pulse"></div>
-                      <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500">Log Protocol / Node_{subTopicId}</span>
+                      <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500">{isFullscreen ? 'Focus Mode Active' : 'Log Protocol'} / Node_{subTopicId}</span>
                   </div>
                   <div className="w-12 h-12 md:w-16 md:h-16 mb-4 bg-medical-500/10 border border-medical-500/20 rounded-2xl flex items-center justify-center text-xl md:text-2xl text-medical-400">
                       <i className={`fas ${activeSceneData.icon}`}></i>
@@ -180,8 +210,8 @@ export const LectureDisplay: React.FC<LectureDisplayProps> = ({ topic, subTopic,
           </div>
       </div>
 
-      {/* Floating Comms Bar - Pinned bottom-center to clear mobile navigation */}
-      <div className="fixed bottom-24 lg:absolute lg:bottom-0 left-0 right-0 p-4 md:p-8 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent z-[400] flex flex-col gap-4">
+      {/* Floating Comms Bar */}
+      <div className={`fixed bottom-24 lg:absolute lg:bottom-0 left-0 right-0 p-4 md:p-8 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent z-[400] flex flex-col gap-4 ${isFullscreen ? 'bottom-8' : ''}`}>
           <div className="max-w-4xl mx-auto w-full flex items-center justify-between gap-4">
               
               <div className="flex items-center gap-2">

@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { audioService } from '../services/audioService';
 
 interface VisualAidProps {
@@ -10,6 +9,8 @@ interface VisualAidProps {
 
 export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams = {} }) => {
   const cleanId = id.toLowerCase().trim();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [params, setParams] = useState<Record<string, number>>({
     frequency: initialParams['frequency'] || 5,
     cycles: initialParams['cycles'] || 3,
@@ -24,13 +25,32 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
   const [activeHotspot, setActiveHotspot] = useState<string | null>(null);
   const [isHovered, setIsHovered] = useState(false);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    audioService.playClick();
+    if (!document.fullscreenElement) {
+        wrapperRef.current?.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+  };
+
   const updateParam = (key: string, val: number) => {
     audioService.playClick();
     setParams(prev => ({ ...prev, [key]: val }));
   };
 
   const renderInteractiveDiagram = () => {
-    // 1. Wavelength / Waveform Lab
     if (cleanId.includes('wavelength') || cleanId.includes('wave')) {
       return (
         <div className="flex flex-col space-y-6">
@@ -54,7 +74,6 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
       );
     }
 
-    // 2. PZT / Transducer Anatomy
     if (cleanId.includes('pzt') || cleanId.includes('transducer')) {
       const layers = [
         { id: 'backing', label: 'Backing Material', color: '#1e293b', info: 'Dampens the pulse, reducing SPL for better Axial Resolution.' },
@@ -81,35 +100,21 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
       );
     }
 
-    // 3. Reflection / Refraction (Snell's Law Lab)
     if (cleanId.includes('reflection') || cleanId.includes('refraction')) {
         const angleRad = (params.incidence * Math.PI) / 180;
         const refracAngleRad = Math.asin((params.speed2 / params.speed1) * Math.sin(angleRad));
         const refracDeg = (refracAngleRad * 180) / Math.PI;
 
-        useEffect(() => {
-            if (isNaN(refracDeg)) audioService.playSystemAlert();
-        }, [refracDeg]);
-
         return (
             <div className="flex flex-col space-y-6">
                 <svg preserveAspectRatio="xMidYMid meet" viewBox="0 0 400 200" className="w-full h-auto bg-black/40 rounded-3xl p-4 border border-white/5">
-                    {/* Interface */}
                     <line x1="0" y1="100" x2="400" y2="100" stroke="#334155" strokeWidth="2" strokeDasharray="5 5" />
                     <text x="390" y="90" textAnchor="end" fill="#64748b" className="text-[8px] font-black uppercase">Medium 1 ({params.speed1}m/s)</text>
                     <text x="390" y="115" textAnchor="end" fill="#64748b" className="text-[8px] font-black uppercase">Medium 2 ({params.speed2}m/s)</text>
-
-                    {/* Normal */}
                     <line x1="200" y1="20" x2="200" y2="180" stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-
-                    {/* Incident Beam */}
                     <line x1={200 - Math.tan(angleRad) * 80} y1="20" x2="200" y2="100" stroke="#0ea5e9" strokeWidth="3" />
                     <text x={200 - Math.tan(angleRad) * 80} y="15" textAnchor="middle" fill="#0ea5e9" className="text-[8px] font-black">INCIDENT ({params.incidence}°)</text>
-
-                    {/* Reflected Beam */}
                     <line x1="200" y1="100" x2={200 + Math.tan(angleRad) * 80} y2="20" stroke="#0ea5e9" strokeWidth="1.5" opacity="0.6" />
-
-                    {/* Refracted Beam */}
                     {!isNaN(refracDeg) ? (
                         <>
                             <line x1="200" y1="100" x2={200 + Math.tan(refracAngleRad) * 80} y2="180" stroke="#14b8a6" strokeWidth="3" />
@@ -127,30 +132,19 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
         );
     }
 
-    // 4. Doppler Angle Dependency
     if (cleanId.includes('doppler_angle') || cleanId.includes('doppler')) {
         const cosValue = Math.cos((params.angle * Math.PI) / 180);
-        
-        useEffect(() => {
-            if (params.angle > 60) audioService.playSystemAlert();
-        }, [params.angle]);
-
         return (
             <div className="flex flex-col space-y-6">
                 <svg preserveAspectRatio="xMidYMid meet" viewBox="0 0 400 150" className="w-full h-auto bg-black/40 rounded-3xl p-6 border border-white/5">
-                    {/* Vessel */}
                     <rect x="0" y="60" width="400" height="30" fill="rgba(239, 68, 68, 0.1)" stroke="rgba(239, 68, 68, 0.2)" strokeWidth="1" />
-                    {/* Flow Vector */}
                     <line x1="50" y1="75" x2="350" y2="75" stroke="#ef4444" strokeWidth="2" markerEnd="url(#arrowhead)" />
-                    
-                    {/* Beam Vector */}
                     <line 
                         x1={200 - Math.cos((params.angle * Math.PI) / 180) * 100} 
                         y1={75 - Math.sin((params.angle * Math.PI) / 180) * 100} 
                         x2="200" y2="75" 
                         stroke="#0ea5e9" strokeWidth="3" strokeDasharray="4 2" 
                     />
-                    
                     <text x="210" y="65" fill="#0ea5e9" className="text-[10px] font-black uppercase font-mono">θ = {params.angle}°</text>
                     <text x="210" y="120" fill={params.angle > 60 ? "#ef4444" : "#14b8a6"} className="text-[10px] font-black uppercase font-mono">COSINE θ = {cosValue.toFixed(2)}</text>
                     {params.angle > 60 && <text x="200" y="140" textAnchor="middle" fill="#ef4444" className="text-[8px] font-black uppercase animate-pulse">Warning: Accuracy drops above 60°</text>}
@@ -160,13 +154,11 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
         );
     }
 
-    // 5. Resolution Comparison Lab
     if (cleanId.includes('resolution')) {
         const axialRes = 0.77 * params.cycles / params.frequency;
         return (
             <div className="flex flex-col space-y-6">
                 <div className="grid grid-cols-2 gap-4 h-48">
-                    {/* Axial Visual */}
                     <div className="bg-black/40 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center relative overflow-hidden">
                         <p className="absolute top-3 left-3 text-[8px] font-black text-slate-500 uppercase">Axial (Depth)</p>
                         <div className="flex flex-col space-y-4">
@@ -175,7 +167,6 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
                         </div>
                         <p className="mt-4 text-[10px] font-black text-teal-400">Res: {axialRes.toFixed(2)}mm</p>
                     </div>
-                    {/* Lateral Visual */}
                     <div className="bg-black/40 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center relative">
                         <p className="absolute top-3 left-3 text-[8px] font-black text-slate-500 uppercase">Lateral (Width)</p>
                         <div className="flex space-x-4">
@@ -193,7 +184,6 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
         );
     }
 
-    // Default Placeholder
     return (
       <div className="flex flex-col items-center justify-center p-16 border-2 border-dashed border-slate-800 rounded-3xl bg-slate-900/20">
           <i className="fas fa-atom text-slate-800 text-5xl mb-6 animate-spin-slow"></i>
@@ -204,7 +194,8 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
 
   return (
     <div 
-      className={`my-12 p-8 md:p-10 bg-slate-900/60 border border-slate-800 rounded-[3.5rem] backdrop-blur-xl group transition-all duration-700 ${isHovered ? 'border-medical-500/40 shadow-[0_50px_100px_-20px_rgba(0,0,0,0.4)]' : 'shadow-2xl'}`}
+      ref={wrapperRef}
+      className={`my-12 p-8 md:p-10 bg-slate-900/60 border border-slate-800 backdrop-blur-xl group transition-all duration-700 ${isFullscreen ? 'fixed inset-0 z-[2000] p-12 md:p-24 overflow-y-auto bg-slate-950 rounded-none' : 'rounded-[3.5rem] shadow-2xl hover:border-medical-500/40'}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -214,22 +205,28 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
               <i className="fas fa-microchip animate-pulse"></i>
            </div>
            <div>
-              <h5 className="text-[10px] font-black uppercase text-medical-500 tracking-[0.3em]">Interactive Simulation</h5>
+              <h5 className="text-[10px] font-black uppercase text-medical-500 tracking-[0.3em]">{isFullscreen ? 'Immersive Lab Active' : 'Interactive Simulation'}</h5>
               <p className="text-[8px] font-bold text-slate-500 uppercase">Live Parameter Tuning Active</p>
            </div>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex space-x-3 items-center">
+            <button 
+                onClick={toggleFullscreen}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-slate-500 hover:text-white transition-all"
+                title={isFullscreen ? "Exit Standalone Lab" : "Standalone Lab View"}
+            >
+                <i className={`fas ${isFullscreen ? 'fa-compress' : 'fa-expand'} text-[10px]`}></i>
+            </button>
             <div className={`w-2 h-2 rounded-full transition-all duration-500 ${isHovered ? 'bg-medical-400 scale-125 shadow-[0_0_10px_#0ea5e9]' : 'bg-slate-700'}`}></div>
-            <div className="w-2 h-2 rounded-full bg-slate-800"></div>
         </div>
       </div>
       
-      <div className="relative overflow-visible">
+      <div className={`relative overflow-visible ${isFullscreen ? 'max-w-4xl mx-auto' : ''}`}>
         {renderInteractiveDiagram()}
       </div>
       
       {caption && (
-        <div className="mt-10 p-6 bg-white/5 rounded-2xl border border-white/5 group-hover:border-white/10 transition-all">
+        <div className={`mt-10 p-6 bg-white/5 rounded-2xl border border-white/5 group-hover:border-white/10 transition-all ${isFullscreen ? 'max-w-4xl mx-auto' : ''}`}>
             <p className="text-slate-400 text-sm font-serif italic text-center leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity">
                "{caption}"
             </p>
@@ -239,8 +236,6 @@ export const VisualAid: React.FC<VisualAidProps> = ({ id, caption, initialParams
       <style>{`
         @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .animate-spin-slow { animation: spin-slow 15s linear infinite; }
-        .animate-ping-horizontal { animation: ping-h 2s cubic-bezier(0, 0, 0.2, 1) infinite; }
-        @keyframes ping-h { 75%, 100% { transform: translate(50px, -50%) scale(1.5); opacity: 0; } }
       `}</style>
     </div>
   );
